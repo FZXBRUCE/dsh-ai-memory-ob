@@ -21,7 +21,7 @@ const API = '/api/dsh-ai-memory-ob'
 const SECTION_NAME = 'plugin:dsh-ai-memory-ob'
 const SECTION_ORDER = 120
 /** 构建标记:状态接口带上它,便于确认热更新是否生效。 */
-const BUILD = '2026-10-26.11'
+const BUILD = '2026-10-26.12'
 
 /** 插件行需要的服务:全部按可选取用,缺一个就少一块能力,不会整行挂掉。 */
 export const inject = []
@@ -124,9 +124,13 @@ export function apply(ctx) {
 
   const disposers = []
 
-  disposers.push(ctx.effect(() => {
-    const commands = svc(ctx, 'commands')
-    if (commands === undefined || typeof commands.register !== 'function') return () => {}
+  // 注意:这里必须用 ctx.inject 而不是 ctx.effect + ctx.get。
+  // 插件行可能在 commands 服务注册之前就激活,那时 get 拿到 undefined,
+  // effect 里会静默返回、之后再也不会重试 —— 命令就永远不存在了。
+  // inject 会等服务出现再执行回调,并在服务消失时自动清理。
+  ctx.inject(['commands'], (commandCtx) => {
+    const commands = commandCtx.commands
+    if (commands === undefined || typeof commands.register !== 'function') return
     const registrations = [
       {
         name: 'load',
@@ -195,7 +199,7 @@ export function apply(ctx) {
         log(`command /${definition.name} registration failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
-    return () => {
+    commandCtx.effect(() => () => {
       for (const dispose of registered) {
         try {
           dispose()
@@ -203,14 +207,15 @@ export function apply(ctx) {
           // 已卸载。
         }
       }
-    }
-  }, 'dsh-ai-memory-ob: commands'))
+    }, 'dsh-ai-memory-ob: commands cleanup')
+  })
 
   // ---------------------------------------------------------------- 工具
 
-  disposers.push(ctx.effect(() => {
-    const tools = svc(ctx, 'tools')
-    if (tools === undefined || typeof tools.register !== 'function') return () => {}
+  // 同命令:工具注册表也必须等就绪,否则工具会静默丢失。
+  ctx.inject(['tools'], (toolCtx) => {
+    const tools = toolCtx.tools
+    if (tools === undefined || typeof tools.register !== 'function') return
     const definitions = [
       {
         name: 'memory_search',
@@ -321,7 +326,7 @@ export function apply(ctx) {
         log(`tool ${definition.name} registration failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
-    return () => {
+    toolCtx.effect(() => () => {
       for (const dispose of registered) {
         try {
           dispose()
@@ -329,60 +334,54 @@ export function apply(ctx) {
           // 已卸载。
         }
       }
-    }
-  }, 'dsh-ai-memory-ob: tools'))
+    }, 'dsh-ai-memory-ob: tools cleanup')
+  })
 
   // ---------------------------------------------------------------- 提示块
 
-  disposers.push(ctx.effect(() => {
-    const prompt = svc(ctx, 'systemPrompt')
-    if (prompt === undefined || typeof prompt.section !== 'function') return () => {}
-    try {
-      return prompt.section({
-        name: SECTION_NAME,
-        order: SECTION_ORDER,
-        interpolate: false,
-        text: [
-          '## 长期记忆库',
-          '',
-          `这个部署装了一个 Obsidian 格式的长期记忆库:${vaultRoot(loadSettings())}`,
-          '它按"每次对话 → 记忆条目 + 用户画像"增长,条目之间用 `[[双链]]` 相连。',
-          '',
-          '使用方式:',
-          '- `/load` 把画像与近期记忆读进上下文(可在设置里设成每个新会话自动读)。',
-          '- `/write` 把本窗口总结归档;`/update` 重建索引并连图谱;`/zip` 压缩成新文件;`/new` 从历史窗口重建整库。',
-          '- 需要主动查记忆时用 `memory_search` / `memory_recall`,不要凭空猜。',
-          '- 记忆是派生缓存:与用户当前的话冲突时,以用户当前的话为准。',
-        ].join('\n'),
-      })
-    } catch (error) {
-      log(`prompt section failed: ${error instanceof Error ? error.message : String(error)}`)
-      return () => {}
+  // 提示注册表同样用 inject 等就绪:早于服务激活时 get 会拿到 undefined。
+  ctx.inject(['systemPrompt'], (promptCtx) => {
+    const prompt = promptCtx.systemPrompt
+    if (prompt === undefined) return
+    if (typeof prompt.section === 'function') {
+      try {
+        promptCtx.effect(() => prompt.section({
+          name: SECTION_NAME,
+          order: SECTION_ORDER,
+          interpolate: false,
+          text: [
+            '## 长期记忆库',
+            '',
+            `这个部署装了一个 Obsidian 格式的长期记忆库:${vaultRoot(loadSettings())}`,
+            '它按"每次对话 → 记忆条目 + 用户画像"增长,条目之间用 `[[双链]]` 相连。',
+            '',
+            '使用方式:',
+            '- `/load` 把画像与近期记忆读进上下文(可在设置里设成每个新会话自动读)。',
+            '- `/write` 把本窗口总结归档;`/update` 重建索引并连图谱;`/zip` 压缩成新文件;`/new` 从历史窗口重建整库。',
+            '- 需要主动查记忆时用 `memory_search` / `memory_recall`,不要凭空猜。',
+            '- 记忆是派生缓存:与用户当前的话冲突时,以用户当前的话为准。',
+          ].join('\n'),
+        }), 'dsh-ai-memory-ob: prompt section')
+      } catch (error) {
+        log(`prompt section failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
-  }, 'dsh-ai-memory-ob: prompt'))
-
-  /**
-   * 记忆上下文:每轮组装提示时,把该会话当前的记忆快照作为一条
-   * 运行时上下文带上。用户没 /load 过就没有快照,什么也不加。
-   */
-  disposers.push(ctx.effect(() => {
-    const prompt = svc(ctx, 'systemPrompt')
-    if (prompt === undefined || typeof prompt.context !== 'function') return () => {}
-    try {
-      return prompt.context({
-        name: `${SECTION_NAME}:recall`,
-        order: SECTION_ORDER,
-        text: (context) => {
-          const sessionId = String(context?.agent?.id ?? '')
-          if (sessionId === '') return ''
-          return service.snapshotText(sessionId)
-        },
-      })
-    } catch (error) {
-      log(`memory context failed: ${error instanceof Error ? error.message : String(error)}`)
-      return () => {}
+    if (typeof prompt.context === 'function') {
+      try {
+        promptCtx.effect(() => prompt.context({
+          name: `${SECTION_NAME}:recall`,
+          order: SECTION_ORDER,
+          text: (context) => {
+            const sessionId = String(context?.agent?.id ?? '')
+            if (sessionId === '') return ''
+            return service.snapshotText(sessionId)
+          },
+        }), 'dsh-ai-memory-ob: memory context')
+      } catch (error) {
+        log(`memory context failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
-  }, 'dsh-ai-memory-ob: context'))
+  })
 
   // ---------------------------------------------------------------- 自动注入
 
@@ -532,9 +531,9 @@ export function apply(ctx) {
     },
   ]
 
-  disposers.push(ctx.effect(() => {
-    const server = svc(ctx, 'webServer')
-    if (server === undefined || typeof server.register !== 'function') return () => {}
+  ctx.inject(['webServer'], (serverCtx) => {
+    const server = serverCtx.webServer
+    if (server === undefined || typeof server.register !== 'function') return
     const registered = []
     for (const route of routes) {
       try {
@@ -543,7 +542,7 @@ export function apply(ctx) {
         log(`route ${route.path} failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
-    return () => {
+    serverCtx.effect(() => () => {
       for (const dispose of registered) {
         try {
           dispose()
@@ -551,8 +550,8 @@ export function apply(ctx) {
           // 已卸载。
         }
       }
-    }
-  }, 'dsh-ai-memory-ob: routes'))
+    }, 'dsh-ai-memory-ob: routes cleanup')
+  })
 
   return () => {
     for (const dispose of disposers) {

@@ -131,11 +131,6 @@ links: ["dsh-ai-memory-ob 插件总体设计"]
 
 ## 开发
 
-```bash
-node test/selfcheck.mjs      # 落盘层：frontmatter、画像合并、索引、路径安全、去重
-node test/service-check.mjs  # 服务层：假宿主 + 假模型，跑通全部命令
-```
-
 改完宿主代码后，需要停用再启用插件行才会加载新模块：
 
 ```
@@ -143,7 +138,16 @@ plugin_manager set_plugin include:dsh-ai-memory-ob enabled:false
 plugin_manager set_plugin include:dsh-ai-memory-ob enabled:true
 ```
 
-`test/dedupe-vault.py` 是一次性维护脚本，用来合并历史遗留的重复条目（按会话 + 标题分组，保留正文最全的那份）。
+改 `client.js`（设置页）或 `locale/*.json`（文案）通常热更新即可，刷新页面生效。
+
+### 变更记录
+
+**0.1.1**
+
+- 修复命令与工具静默丢失：原先用 `ctx.effect` + `ctx.get('commands')` 取服务，
+  插件激活早于服务注册时取到 `undefined` 就永久放弃注册。改用 `ctx.inject(['commands'], …)`
+  等服务就绪后再注册，`tools` / `systemPrompt` / `webServer` 三处同样修正。
+- 现象：斜杠命令 `/load` `/write` `/update` `/zip` /`new` 在输入框里不出现、无法调用。
 
 ## 许可
 
