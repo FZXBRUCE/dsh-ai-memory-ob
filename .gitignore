@@ -4,3 +4,8 @@ node_modules/
 .DS_Store
 Thumbs.db
 test/dedupe-vault.py.bak
+
+# 本地发布辅助脚本,不进仓库
+publish.sh
+publish.ps1
+*.sh
