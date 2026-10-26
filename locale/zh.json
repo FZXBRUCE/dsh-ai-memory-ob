@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "title": "AI 记忆库",
+    "description": "把长期记忆存成 Obsidian 库:每次对话生成记忆条目与用户画像,条目之间用双链连成图谱。/load 读取注入,/write 归档本窗,/update 重建图谱,/zip 压缩,/new 从历史窗口重建。"
+  },
+  "section": {
+    "title": "AI 记忆库",
+    "nav": "AI 记忆库"
+  },
+  "settings": {
+    "vault": "记忆库",
+    "vaultPath": "库文件夹",
+    "vaultPathHint": "绝对路径或 ~/路径。留空 = $DSH_HOME/ai-memory。用 Obsidian 打开这个文件夹就能看到关系图谱。",
+    "autoWrite": "自动写入",
+    "autoWriteOff": "关闭(只用 /write)",
+    "autoWriteTurns": "每 N 轮写一次",
+    "autoWriteTurnsCount": "每几次写入",
+    "autoInject": "新会话自动注入记忆",
+    "injectRecent": "注入的近期条目数",
+    "injectProfile": "注入用户画像",
+    "injectZips": "注入压缩记忆",
+    "zipShareAll": "压缩记忆跨窗口共享",
+    "injectBudget": "注入字符上限",
+    "writeMaxEntries": "单次写入最多条目",
+    "newMaxSessions": "/new 扫描的会话数",
+    "model": "归纳模型",
+    "modelHint": "provider/model。留空 = 跟随会话当前模型。",
+    "includeToolDigest": "摘要素材里带工具名与文件路径",
+    "save": "保存",
+    "saved": "已保存",
+    "reset": "恢复默认"
+  },
+  "actions": {
+    "title": "操作",
+    "write": "立刻写入本窗",
+    "load": "重新注入记忆",
+    "zip": "压缩本窗",
+    "update": "重建图谱",
+    "reindex": "重建索引",
+    "export": "导出图谱 JSON",
+    "needsSession": "这个操作需要一个打开着的会话。"
+  },
+  "browse": {
+    "title": "库浏览",
+    "empty": "这个文件夹是空的。",
+    "up": "上一级",
+    "root": "库根目录"
+  },
+  "stats": {
+    "entries": "条目",
+    "bytes": "体积",
+    "zips": "压缩件",
+    "lastWrite": "上次写入",
+    "never": "从未",
+    "model": "归纳模型",
+    "autoWrite": "自动写入",
+    "autoInject": "自动注入",
+    "on": "开",
+    "off": "关"
+  },
+  "status": {
+    "loading": "加载中…",
+    "error": "连不上记忆服务。"
+  }
+}

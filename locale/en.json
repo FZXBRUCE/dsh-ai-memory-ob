@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "title": "AI Memory Vault",
+    "description": "Long-term memory as an Obsidian vault: every conversation becomes linked notes plus a user profile. /load injects it, /write archives the window, /update builds the graph, /zip compresses, /new rebuilds from history."
+  },
+  "section": {
+    "title": "AI Memory",
+    "nav": "AI Memory"
+  },
+  "settings": {
+    "vault": "Vault",
+    "vaultPath": "Vault folder",
+    "vaultPathHint": "Absolute path, or ~/path. Empty = $DSH_HOME/ai-memory. Open this folder in Obsidian to browse the graph.",
+    "autoWrite": "Automatic write",
+    "autoWriteOff": "Off (only /write)",
+    "autoWriteTurns": "Every N turns",
+    "autoWriteTurnsCount": "Turns per write",
+    "autoInject": "Inject memory into new sessions",
+    "injectRecent": "Recent entries to inject",
+    "injectProfile": "Include the user profile",
+    "injectZips": "Include compressed memories",
+    "zipShareAll": "Share compressed memories across sessions",
+    "injectBudget": "Injection character budget",
+    "writeMaxEntries": "Max entries per write",
+    "newMaxSessions": "Sessions scanned by /new",
+    "model": "Summarizer model",
+    "modelHint": "provider/model. Empty = follow the session's current model.",
+    "includeToolDigest": "Include tool names and file paths in the digest",
+    "save": "Save",
+    "saved": "Saved",
+    "reset": "Reset to defaults"
+  },
+  "actions": {
+    "title": "Actions",
+    "write": "Write this window now",
+    "load": "Re-inject memory",
+    "zip": "Compress this window",
+    "update": "Rebuild graph",
+    "reindex": "Rebuild index",
+    "export": "Export graph JSON",
+    "needsSession": "Open a conversation to use this action."
+  },
+  "browse": {
+    "title": "Vault browser",
+    "empty": "This folder is empty.",
+    "up": "Up",
+    "root": "Vault root"
+  },
+  "stats": {
+    "entries": "Entries",
+    "bytes": "Size",
+    "zips": "Compressed",
+    "lastWrite": "Last write",
+    "never": "never",
+    "model": "Summarizer",
+    "autoWrite": "Auto write",
+    "autoInject": "Auto inject",
+    "on": "on",
+    "off": "off"
+  },
+  "status": {
+    "loading": "Loading…",
+    "error": "Could not reach the memory service."
+  }
+}

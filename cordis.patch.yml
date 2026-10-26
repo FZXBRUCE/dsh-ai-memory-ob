@@ -1,0 +1,7 @@
+# dsh-ai-memory-ob bundle patch
+# 一个插件行同时挂宿主半边(记忆服务、5 个命令、4 个工具、设置页路由)
+# 和浏览器半边(设置页「AI 记忆库」)。
+# 纯 insert(id/name)可以热挂载,不需要重启。
+- insert:
+    - id: dsh-ai-memory-ob
+      name: dsh-ai-memory-ob
