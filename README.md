@@ -270,20 +270,30 @@ relates: ["depends-on:记忆库落盘"]
 设置页里有一张 **插件更新** 卡片：
 
 1. 点 **检查更新** —— 从 GitHub 拉 `package.json` 比对版本，只读，不改任何文件
-2. 有新版本时会出现 **立即更新** 按钮 —— 调用宿主的插件管理器重新安装
+2. 有新版本时会出现 **立即更新** 按钮
 3. 更新后如果界面没变化，**停用再启用插件行**即可加载新代码
 
-卡片上会显示「当前版本 / 远端版本」，以及失败原因（网络、仓库地址缺失、
-插件管理器不可用等）。
+卡片上会显示「当前版本 / 远端版本」，以及失败原因。
 
-不想用按钮也可以手动更新：
+### 两种安装方式，更新行为不同
+
+| 安装方式 | 记录形态 | 「立即更新」 |
+| --- | --- | --- |
+| 从 GitHub 安装（普通用户） | `github:owner/repo#<sha>` | ✅ 可用：先卸再装 |
+| 本地目录安装（开发者） | `link:/path/to/plugin` | ❌ 拒绝：保护源码目录 |
+
+**如果你是开发者**（`link:` 安装），插件会**主动拒绝**自动更新并提示你手动执行：
 
 ```bash
 cd <插件目录>
 git pull
 ```
 
-然后在 DSH 里停用再启用插件行。
+这是故意的：自动更新会把 `link:` 换成 GitHub 下载的副本，你的源码目录就被绕过去了。
+
+**如果你是普通用户**（从 GitHub 安装），点按钮即可，内部会先 `removeBundle` 再
+`installBundle` —— DSH 的 `installBundle` 对已安装的包会返回 `already-installed`，
+所以必须先卸再装。
 
 ## 兼容性
 
@@ -303,6 +313,29 @@ plugin_manager set_plugin include:dsh-ai-memory-ob enabled:true
 改 `client.js`（设置页）或 `locale/*.json`（文案）通常热更新即可，刷新页面生效。
 
 ### 变更记录
+
+**0.4.1**
+
+- 修复「立即更新」按钮对已安装插件无效：DSH 的 `installBundle` 对已安装的包返回
+  `already-installed`，必须先 `removeBundle` 再 `installBundle`。现在内部按这个顺序执行。
+- 新增安装方式检测（`installedKind`）：`link:` 安装**主动拒绝**自动更新并提示手动
+  `git pull`，避免把开发者的源码目录替换成 GitHub 副本。
+  （0.4.0 里实测踩过这个坑：一次误操作清空了本地 `.git` 的 HEAD / config / index。）
+- 测试补充三条断言：`link` 安装被拒且完全不触碰插件管理器；`github` 安装的
+  remove→install 调用顺序；并验证过去掉 `removeBundle` 后测试会失败（确认断言有效）。
+
+**0.4.0**
+
+- README 新增「用 Obsidian 打开记忆库」完整教程：库路径从哪读、创建仓库时地址要选到
+  库文件夹本身、目录结构与图谱入口、哪些字段不能手改、建议关掉「自动生成唯一标题」。
+- 设置页新增「插件更新」卡片：检查更新（只读比对版本）+ 立即更新。
+- 版本获取按可靠性依次尝试 `git` → 宿主 `web` 服务 → 原生 `fetch`，
+  并把网络错误翻译成人话（TLS 证书、内网 IP、超时等）。
+- 修复实体页文件名与双链文字不一致导致的**断链**：新增 `entityFileName` /
+  `entityLinkTarget`，两者产出完全相同的字符串（斜杠换全角，保留中文与 `@`）。
+  之前 `[[myYangyunfan/dsh_cardian]]` 指向的文件实际叫 `myyangyunfan-dsh_cardian.md`，
+  Obsidian 里全是空节点。
+- `package.json` 补上 `repository` / `homepage` / `bugs` 字段。
 
 **0.3.0**
 
