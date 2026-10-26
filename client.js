@@ -67,6 +67,17 @@ window.__ModuleLoader__.load({
       error: '连不上记忆服务',
       running: '执行中…',
       openFolder: '库路径',
+      dockLabel: '记忆开关',
+      dockOn: '记忆:开',
+      dockOff: '记忆:关',
+      dockHintOn: '本会话已启用记忆:会自动注入上下文并按设置自动归档',
+      dockHintOnIdle: '本会话已启用记忆:下次组装提示时会带上',
+      dockHintOff: '本会话已关闭记忆:不注入、不归档、不消耗 token;命令仍可手动用',
+      toggleDefaultOn: '新会话默认启用记忆',
+      toggleDefaultHint: '关掉后新会话默认不启用,可在输入框下方的按钮里单独打开某个会话。',
+      toggleGrounding: '注入时提示"记忆里没有就别猜"',
+      timeline: '记忆时间线',
+      timelineEmpty: '还没有记忆。',
     }
 
     const EN = {
@@ -120,6 +131,17 @@ window.__ModuleLoader__.load({
       error: 'Cannot reach the memory service',
       running: 'Working…',
       openFolder: 'Vault',
+      dockLabel: 'Memory',
+      dockOn: 'Memory: on',
+      dockOff: 'Memory: off',
+      dockHintOn: 'Memory is on for this chat: it injects context and archives on schedule',
+      dockHintOnIdle: 'Memory is on for this chat: it will be included on the next prompt',
+      dockHintOff: 'Memory is off for this chat: no injection, no archiving, no token cost. Commands still work.',
+      toggleDefaultOn: 'Enable memory in new chats by default',
+      toggleDefaultHint: 'Turn off to start new chats with memory disabled; enable it per chat with the button under the composer.',
+      toggleGrounding: 'Warn the model not to guess beyond memory',
+      timeline: 'Memory timeline',
+      timelineEmpty: 'No memories yet.',
     }
 
     /** 当前语言下的文案(优先宿主 locale,退到本地表)。 */
@@ -148,6 +170,9 @@ window.__ModuleLoader__.load({
       newMaxSessions: 8,
       model: '',
       includeToolDigest: true,
+      defaultSessionEnabled: true,
+      disabledAllowsManual: true,
+      injectGroundingHint: true,
     }
 
     // ------------------------------------------------------------ 样式
@@ -181,6 +206,12 @@ window.__ModuleLoader__.load({
       '.aimem .tree button.file{color:var(--dsw-alias-label-secondary)}',
       '.aimem .preview{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:10px;background:var(--dsw-alias-bg-base);overflow:auto;max-height:300px;white-space:pre-wrap;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary)}',
       '.aimem .err{color:var(--dsw-alias-state-error-primary);font-size:12px}',
+      '.aimem .aimem-timeline{display:flex;flex-direction:column;gap:10px}',
+      '.aimem .aimem-day{display:flex;flex-direction:column;gap:4px}',
+      '.aimem .aimem-day-head{font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}',
+      '.aimem .aimem-day-body{display:flex;flex-direction:column;gap:2px;padding-left:2px;border-left:2px solid var(--dsw-alias-border-l1)}',
+      '.aimem .aimem-entry{text-align:left;border:none;background:transparent;color:var(--dsw-alias-label-primary);font-size:12px;padding:2px 8px;border-radius:6px;cursor:pointer}',
+      '.aimem .aimem-entry:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.aimem .ok{color:var(--dsw-alias-state-success-primary);font-size:12px}',
     ].join('')
 
@@ -246,6 +277,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [tree, setTree] = React.useState({ path: '', entries: [] })
       const [preview, setPreview] = React.useState(undefined)
+      const [timeline, setTimeline] = React.useState(undefined)
 
       const refresh = React.useCallback(async () => {
         try {
@@ -267,10 +299,20 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      const refreshTimeline = React.useCallback(async () => {
+        try {
+          const next = await getJson(`${API}/timeline?limit=40`)
+          setTimeline(next)
+        } catch {
+          setTimeline({ total: 0, days: [] })
+        }
+      }, [])
+
       React.useEffect(() => {
         void refresh()
         void refreshTree('')
-      }, [refresh, refreshTree])
+        void refreshTimeline()
+      }, [refresh, refreshTree, refreshTimeline])
 
       const run = async (action, payload) => {
         setBusy(action)
@@ -281,6 +323,7 @@ window.__ModuleLoader__.load({
           setMessage({ ok: result.ok !== false, text: String(result.text ?? '') })
           await refresh()
           await refreshTree(tree.path)
+          await refreshTimeline()
         } catch (issue) {
           setError(issue instanceof Error ? issue.message : String(issue))
         } finally {
@@ -445,7 +488,10 @@ window.__ModuleLoader__.load({
             toggle(dict.toggleZips, draft.injectZips, (value) => update({ injectZips: value })),
             toggle(dict.toggleShare, draft.zipShareAll, (value) => update({ zipShareAll: value })),
             toggle(dict.toggleTools, draft.includeToolDigest, (value) => update({ includeToolDigest: value })),
+            toggle(dict.toggleDefaultOn, draft.defaultSessionEnabled, (value) => update({ defaultSessionEnabled: value })),
+            toggle(dict.toggleGrounding, draft.injectGroundingHint, (value) => update({ injectGroundingHint: value })),
           ),
+          h('p', { className: 'hint' }, dict.toggleDefaultHint),
           h('div', { className: 'row' },
             h('button', { className: 'primary', disabled: busy !== '', onClick: () => void save() }, dict.save),
             h('button', {
@@ -464,6 +510,29 @@ window.__ModuleLoader__.load({
               },
             }, dict.reset),
           ),
+        ),
+
+        // 时间线
+        h('div', { className: 'card' },
+          h('h3', null, dict.timeline),
+          timeline === undefined
+            ? h('div', { className: 'hint' }, dict.loading)
+            : timeline.days.length === 0
+              ? h('div', { className: 'hint' }, dict.timelineEmpty)
+              : h('div', { className: 'aimem-timeline' },
+                timeline.days.slice(0, 8).map((day) => h('div', { key: day.day, className: 'aimem-day' },
+                  h('div', { className: 'aimem-day-head' }, `${day.day} · ${day.count}`),
+                  h('div', { className: 'aimem-day-body' },
+                    day.entries.slice(0, 6).map((entry) => h('button', {
+                      key: entry.file,
+                      type: 'button',
+                      className: 'aimem-entry',
+                      title: entry.file,
+                      onClick: () => void openFile(entry.file),
+                    }, `[${entry.kind}] ${entry.title}`)),
+                  ),
+                )),
+              ),
         ),
 
         // 库浏览
@@ -515,6 +584,108 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // ------------------------------------------------------------ 会话开关按钮
+
+    /**
+     * 输入框下方的记忆开关。
+     *
+     * 只做一件事:让用户决定"这个会话要不要被记忆插件碰"。
+     * 关掉后宿主侧不再自动注入、不再自动归档,也就不会消耗 token;
+     * 命令与工具仍然可用,用户想手动用随时能调。
+     *
+     * 状态存在宿主内存里(按会话 id),不写盘 —— 一次性的决定不该污染全局设置。
+     */
+    function SessionToggle(props) {
+      const sessionId = String(props?.sessionId ?? '')
+      const [state, setState] = React.useState(undefined)
+      const [busy, setBusy] = React.useState(false)
+      const [error, setError] = React.useState('')
+      const dict = React.useMemo(() => pickDict(), [])
+
+      const load = React.useCallback(async () => {
+        if (sessionId === '') return
+        try {
+          const next = await getJson(`${API}/session?id=${encodeURIComponent(sessionId)}`)
+          setState(next)
+          setError('')
+        } catch (issue) {
+          setError(issue instanceof Error ? issue.message : String(issue))
+        }
+      }, [sessionId])
+
+      React.useEffect(() => {
+        void load()
+      }, [load])
+
+      const flip = async () => {
+        if (busy || sessionId === '' || state === undefined) return
+        setBusy(true)
+        try {
+          const next = await postJson(`${API}/session`, { sessionId, enabled: state.enabled !== true })
+          setState(next)
+          setError('')
+        } catch (issue) {
+          setError(issue instanceof Error ? issue.message : String(issue))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      // 没有会话(空白态)或状态还没拿到时不占位置。
+      if (sessionId === '' || state === undefined) {
+        return error === '' ? null : h('div', { className: 'aimem-dock-err' }, error)
+      }
+
+      const on = state.enabled === true
+      const label = on ? dict.dockOn : dict.dockOff
+      const hint = on
+        ? (state.hasSnapshot ? dict.dockHintOn : dict.dockHintOnIdle)
+        : dict.dockHintOff
+
+      return h('div', { className: 'aimem-dock' },
+        h('button', {
+          type: 'button',
+          className: on ? 'aimem-dock-btn on' : 'aimem-dock-btn',
+          onClick: () => void flip(),
+          disabled: busy,
+          title: hint,
+          'aria-pressed': on,
+        },
+          h('span', { className: 'aimem-dock-dot', 'aria-hidden': true }),
+          h('span', null, label),
+          state.overridden === true ? h('span', { className: 'aimem-dock-mark' }, '*') : null,
+        ),
+        error !== '' ? h('span', { className: 'aimem-dock-err' }, error) : null,
+      )
+    }
+
+    /** 开关按钮的样式(只挂一次)。 */
+    const DOCK_CSS = [
+      '.aimem-dock{display:flex;align-items:center;gap:6px;padding:2px 2px 0;font-size:11px}',
+      '.aimem-dock-btn{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);border-radius:999px;padding:2px 10px;font-size:11px;cursor:pointer;transition:border-color .12s ease,color .12s ease,background .12s ease}',
+      '.aimem-dock-btn:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}',
+      '.aimem-dock-btn:disabled{opacity:.5;cursor:default}',
+      '.aimem-dock-btn.on{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}',
+      '.aimem-dock-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-idle-primary);flex:none}',
+      '.aimem-dock-btn.on .aimem-dock-dot{background:var(--dsw-alias-brand-primary)}',
+      '.aimem-dock-mark{opacity:.7;font-size:10px}',
+      '.aimem-dock-err{color:var(--dsw-alias-state-error-primary);font-size:11px}',
+    ].join('')
+
+    /** 一次性注入样式,组件卸载时移除。 */
+    function DockStyle() {
+      React.useEffect(() => {
+        const tag = document.createElement('style')
+        tag.setAttribute('data-dsh-ai-memory-ob', 'dock')
+        tag.textContent = DOCK_CSS
+        document.head.appendChild(tag)
+        return () => {
+          tag.remove()
+        }
+      }, [])
+      return null
+    }
+
     // ------------------------------------------------------------ 注册
 
     /** 需要的客户端服务。 */
@@ -539,6 +710,17 @@ window.__ModuleLoader__.load({
         }, (props) => h(MemoryPanel, { ...props, ctx }))))
       } catch {
         // 设置页座位不可用时保持安静:命令与工具仍然可用。
+      }
+      // 输入框下方的会话开关:order 靠后,不和宿主的 activity/usage 抢位置。
+      try {
+        disposers.push(slots.inject('conversation.composer.dock', () => slots.register({
+          name: 'conversation.composer.dock',
+          id: 'dsh-ai-memory-ob-toggle',
+          order: 20,
+          label: () => dict.dockLabel,
+        }, (props) => h(SessionToggle, { ...props, ctx }))))
+      } catch {
+        // 座位不可用时按钮不出现,命令 /memory 仍然能切换。
       }
       return () => {
         for (const dispose of disposers) {

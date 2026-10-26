@@ -1,6 +1,6 @@
 {
   "name": "dsh-ai-memory-ob",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "DSH 长期记忆库：每次对话生成用户画像与 Obsidian 格式的记忆库（双链 + 图谱），/load 读取注入、/write 归档、/update 连图谱、/zip 压缩、/new 重建。",
   "icon": "icon.svg",

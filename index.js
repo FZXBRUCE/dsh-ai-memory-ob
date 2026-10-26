@@ -21,7 +21,7 @@ const API = '/api/dsh-ai-memory-ob'
 const SECTION_NAME = 'plugin:dsh-ai-memory-ob'
 const SECTION_ORDER = 120
 /** 构建标记:状态接口带上它,便于确认热更新是否生效。 */
-const BUILD = '2026-10-26.12'
+const BUILD = '2026-10-26.13'
 
 /** 插件行需要的服务:全部按可选取用,缺一个就少一块能力,不会整行挂掉。 */
 export const inject = []
@@ -138,7 +138,8 @@ export function apply(ctx) {
         input: { hint: '留空 = 画像 + 近期记忆;或写 2026-10-01..2026-10-20 只读这段时间' },
         handler: async (invocation) => {
           const range = parseRange(invocation.rawInput)
-          const result = await service.load(invocation.agent, range)
+          // 用户手打 /load 是明确意图:即使会话开关关着也照做。
+          const result = await service.load(invocation.agent, { ...range, force: true })
           if (result.delivered !== true) {
             return { kind: 'error', text: `记忆读取成功,但没能挂进上下文:${result.text.slice(0, 200)}` }
           }
@@ -188,6 +189,61 @@ export function apply(ctx) {
         handler: async () => {
           const result = await service.rebuild()
           return { kind: result.ok === true ? 'success' : 'error', text: result.text }
+        },
+      },
+      {
+        name: 'recall',
+        description: '按时间线回顾记忆,不调模型、不花 token。可带天数,如 `/recall 7` 只看最近 7 天。',
+        input: { hint: '留空 = 最近 40 天;写数字 = 最近 N 天' },
+        handler: async (invocation) => {
+          const raw = String(invocation.rawInput ?? '').trim()
+          const days = /^\d+$/.test(raw) ? Math.max(1, Number(raw)) : undefined
+          const timeline = service.timeline({ limit: days ?? 40 })
+          if (timeline.days.length === 0) {
+            return { kind: 'success', text: `记忆库还是空的(${service.vault.root})。先用 /write 写一次。` }
+          }
+          const lines = [`记忆时间线(${timeline.total} 条):`, '']
+          for (const day of timeline.days) {
+            lines.push(`## ${day.day} · ${day.count} 条`)
+            for (const entry of day.entries.slice(0, 12)) {
+              lines.push(`- [${entry.kind}] ${entry.title} — ${entry.hook}`)
+            }
+            lines.push('')
+          }
+          return { kind: 'success', text: lines.join('\n') }
+        },
+      },
+      {
+        name: 'memory',
+        description: '查看或切换本会话的记忆开关。`/memory` 看状态,`/memory on` 开,`/memory off` 关,`/memory reset` 回到默认。',
+        input: { hint: '留空 = 看状态;on / off / reset' },
+        handler: async (invocation) => {
+          const sessionId = String(invocation.agent?.id ?? '')
+          const raw = String(invocation.rawInput ?? '').trim().toLowerCase()
+          if (raw === 'on' || raw === 'off') {
+            service.setSessionEnabled(sessionId, raw === 'on')
+            const state = service.sessionState(sessionId)
+            return {
+              kind: 'success',
+              text: raw === 'on'
+                ? '本会话记忆已开启:会自动注入、按设置自动归档。'
+                : '本会话记忆已关闭:不再自动注入、不再自动归档,也不会消耗 token。命令与工具仍可手动用。',
+            }
+          }
+          if (raw === 'reset') {
+            service.clearSessionOverride(sessionId)
+            return { kind: 'success', text: `已恢复默认(${service.settings.defaultSessionEnabled ? '开' : '关'})。` }
+          }
+          const state = service.sessionState(sessionId)
+          return {
+            kind: 'success',
+            text: [
+              `本会话记忆:${state.enabled ? '开' : '关'}${state.overridden ? '(手动覆盖)' : '(跟随默认)'}`,
+              `已注入上下文:${state.hasSnapshot ? '是' : '否'}`,
+              '',
+              '用 /memory on 或 /memory off 切换;输入框下方的小按钮效果一样。',
+            ].join('\n'),
+          }
         },
       },
     ]
@@ -391,6 +447,8 @@ export function apply(ctx) {
     // 子代理不继承用户记忆:它们的上下文属于父任务,记忆会干扰判断。
     const session = sessionOf(agent)
     if (session?.header?.origin === 'subagent') return
+    // 会话级开关关掉时不自动注入(service.load 内部还会再判一次)。
+    if (!service.isSessionEnabled(agent?.id)) return
     try {
       await service.load(agent)
     } catch (error) {
@@ -401,7 +459,7 @@ export function apply(ctx) {
   // 会话结束时丢掉快照(库里已经落盘了)。
   disposers.push(ctx.on('agent/disposed', ({ agent }) => {
     const sessionId = String(agent?.id ?? '')
-    if (sessionId !== '') service.forget(sessionId)
+    if (sessionId !== '') service.dropSnapshot(sessionId)
   }))
 
   // ---------------------------------------------------------------- 自动写入
@@ -411,6 +469,8 @@ export function apply(ctx) {
     const settings = service.settings
     if (settings.autoWriteMode !== 'turns') return
     if (session?.header?.origin === 'subagent') return
+    // 关掉的会话连计数都不做,更不会写入。
+    if (!service.isSessionEnabled(session.id)) return
     const agent = liveAgent(session.id)
     if (agent === undefined) return
     void service.tick(agent).catch((error) => {
@@ -453,6 +513,40 @@ export function apply(ctx) {
           sendJson(res, 200, service.read(url.searchParams.get('path') ?? ''))
         } catch (error) {
           sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    },
+    {
+      path: `${API}/session`,
+      handler: async (req, res) => {
+        if (!isLocal(req)) return sendJson(res, 403, { ok: false, error: 'loopback only' })
+        const url = new URL(req.url ?? '/', 'http://localhost')
+        const sessionId = url.searchParams.get('id') ?? ''
+        if (req.method === 'GET') {
+          return sendJson(res, 200, { ok: true, ...service.sessionState(sessionId) })
+        }
+        if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'GET or POST only' })
+        try {
+          const body = await readJson(req)
+          const id = String(body?.sessionId ?? sessionId)
+          if (body?.reset === true) service.clearSessionOverride(id)
+          else service.setSessionEnabled(id, body?.enabled === true)
+          sendJson(res, 200, { ok: true, ...service.sessionState(id) })
+        } catch (error) {
+          sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    },
+    {
+      path: `${API}/timeline`,
+      handler: async (req, res) => {
+        if (!isLocal(req)) return sendJson(res, 403, { ok: false, error: 'loopback only' })
+        const url = new URL(req.url ?? '/', 'http://localhost')
+        const limit = Number(url.searchParams.get('limit') ?? '40')
+        try {
+          sendJson(res, 200, { ok: true, ...service.timeline({ limit: Number.isFinite(limit) ? limit : 40 }) })
+        } catch (error) {
+          sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
         }
       },
     },
@@ -522,6 +616,21 @@ export function apply(ctx) {
           if (action === 'update') {
             const result = await service.updateGraph()
             return sendJson(res, 200, { ok: true, text: result.text, ...(typeof result.note === 'string' ? { note: result.note } : {}) })
+          }
+          if (action === 'forget') {
+            const result = service.forget(String(body?.path ?? ''))
+            return sendJson(res, 200, { ok: result.ok === true, text: result.text })
+          }
+          if (action === 'session-toggle') {
+            const id = String(body?.sessionId ?? '')
+            if (body?.reset === true) service.clearSessionOverride(id)
+            else service.setSessionEnabled(id, body?.enabled === true)
+            const state = service.sessionState(id)
+            return sendJson(res, 200, {
+              ok: true,
+              ...state,
+              text: state.enabled ? '本会话记忆已开启。' : '本会话记忆已关闭。',
+            })
           }
           return sendJson(res, 400, { ok: false, error: `unknown action: ${action}` })
         } catch (error) {
