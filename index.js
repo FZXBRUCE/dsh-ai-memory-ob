@@ -21,7 +21,7 @@ const API = '/api/dsh-ai-memory-ob'
 const SECTION_NAME = 'plugin:dsh-ai-memory-ob'
 const SECTION_ORDER = 120
 /** 构建标记:状态接口带上它,便于确认热更新是否生效。 */
-const BUILD = '2026-10-26.13'
+const BUILD = '2026-10-27.2'
 
 /** 插件行需要的服务:全部按可选取用,缺一个就少一块能力,不会整行挂掉。 */
 export const inject = []
