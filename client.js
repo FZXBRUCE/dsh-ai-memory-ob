@@ -78,6 +78,14 @@ window.__ModuleLoader__.load({
       toggleGrounding: '注入时提示"记忆里没有就别猜"',
       timeline: '记忆时间线',
       timelineEmpty: '还没有记忆。',
+      updateTitle: '插件更新',
+      updateCurrent: '当前版本',
+      updateLatest: '远端版本',
+      updateCheck: '检查更新',
+      updateApply: '立即更新',
+      updateApplying: '正在更新…',
+      updateChecking: '检查中…',
+      updateHint: '从 GitHub 拉取新版本。更新后通常需要停用再启用插件行才能加载新代码。',
     }
 
     const EN = {
@@ -142,6 +150,14 @@ window.__ModuleLoader__.load({
       toggleGrounding: 'Warn the model not to guess beyond memory',
       timeline: 'Memory timeline',
       timelineEmpty: 'No memories yet.',
+      updateTitle: 'Plugin update',
+      updateCurrent: 'Current',
+      updateLatest: 'Remote',
+      updateCheck: 'Check for updates',
+      updateApply: 'Update now',
+      updateApplying: 'Updating…',
+      updateChecking: 'Checking…',
+      updateHint: 'Pulls the latest version from GitHub. You usually need to disable and re-enable the plugin row to load the new code.',
     }
 
     /** 当前语言下的文案(优先宿主 locale,退到本地表)。 */
@@ -278,12 +294,15 @@ window.__ModuleLoader__.load({
       const [tree, setTree] = React.useState({ path: '', entries: [] })
       const [preview, setPreview] = React.useState(undefined)
       const [timeline, setTimeline] = React.useState(undefined)
+      const [updateState, setUpdateState] = React.useState({ current: undefined })
 
       const refresh = React.useCallback(async () => {
         try {
           const next = await getJson(`${API}/state`)
           setState(next)
           setDraft(next.settings)
+          // 版本号从状态里带出来,更新卡片一打开就能显示"当前版本"。
+          setUpdateState((current) => ({ ...current, current: next.version }))
           setError('')
         } catch (issue) {
           setError(issue instanceof Error ? issue.message : String(issue))
@@ -343,6 +362,53 @@ window.__ModuleLoader__.load({
           setError(issue instanceof Error ? issue.message : String(issue))
         } finally {
           setBusy('')
+        }
+      }
+
+      /** 检查更新:只读,拉远端 package.json 比版本。 */
+      const checkUpdate = async () => {
+        setUpdateState((current) => ({ ...current, checking: true, text: undefined }))
+        try {
+          const result = await postJson(`${API}/action`, { action: 'check-update' })
+          setUpdateState({
+            current: result.current ?? updateState.current,
+            latest: result.latest,
+            hasUpdate: result.hasUpdate === true,
+            sameVersion: result.sameVersion === true,
+            ok: result.ok !== false,
+            text: String(result.text ?? ''),
+            checking: false,
+          })
+        } catch (issue) {
+          setUpdateState((current) => ({
+            ...current,
+            checking: false,
+            ok: false,
+            text: issue instanceof Error ? issue.message : String(issue),
+          }))
+        }
+      }
+
+      /** 执行更新:让插件管理器从 GitHub 重装。会跑 pnpm,较慢。 */
+      const applyUpdate = async () => {
+        setUpdateState((current) => ({ ...current, applying: true, text: dict.updateApplying }))
+        try {
+          const result = await postJson(`${API}/action`, { action: 'apply-update' })
+          setUpdateState((current) => ({
+            ...current,
+            applying: false,
+            ok: result.ok !== false,
+            hasUpdate: result.ok === true ? false : current.hasUpdate,
+            latest: result.version ?? current.latest,
+            text: String(result.text ?? ''),
+          }))
+        } catch (issue) {
+          setUpdateState((current) => ({
+            ...current,
+            applying: false,
+            ok: false,
+            text: issue instanceof Error ? issue.message : String(issue),
+          }))
         }
       }
 
@@ -411,6 +477,32 @@ window.__ModuleLoader__.load({
             : null,
           error !== '' ? h('div', { className: 'err' }, error) : null,
           hasSession ? null : h('div', { className: 'hint' }, dict.needsSession),
+        ),
+
+        // 更新
+        h('div', { className: 'card' },
+          h('h3', null, dict.updateTitle),
+          h('div', { className: 'row' },
+            h('span', { className: 'hint' }, `${dict.updateCurrent}: v${updateState.current ?? '?'}`),
+            updateState.latest !== undefined
+              ? h('span', { className: 'hint' }, `· ${dict.updateLatest}: v${updateState.latest}`)
+              : null,
+            updateState.checking === true ? h('span', { className: 'hint' }, dict.updateChecking) : null,
+          ),
+          updateState.text !== undefined
+            ? h('div', { className: updateState.ok === false ? 'err' : 'hint' }, updateState.text)
+            : null,
+          h('div', { className: 'row' },
+            h('button', { disabled: busy !== '' || updateState.checking === true, onClick: () => void checkUpdate() }, dict.updateCheck),
+            updateState.hasUpdate === true
+              ? h('button', {
+                className: 'primary',
+                disabled: busy !== '' || updateState.applying === true,
+                onClick: () => void applyUpdate(),
+              }, updateState.applying === true ? dict.updateApplying : dict.updateApply)
+              : null,
+          ),
+          h('p', { className: 'hint' }, dict.updateHint),
         ),
 
         // 设置

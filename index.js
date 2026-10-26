@@ -21,7 +21,7 @@ const API = '/api/dsh-ai-memory-ob'
 const SECTION_NAME = 'plugin:dsh-ai-memory-ob'
 const SECTION_ORDER = 120
 /** 构建标记:状态接口带上它,便于确认热更新是否生效。 */
-const BUILD = '2026-10-27.2'
+const BUILD = '2026-10-27.5'
 
 /** 插件行需要的服务:全部按可选取用,缺一个就少一块能力,不会整行挂掉。 */
 export const inject = []
@@ -631,6 +631,16 @@ export function apply(ctx) {
               ...state,
               text: state.enabled ? '本会话记忆已开启。' : '本会话记忆已关闭。',
             })
+          }
+          if (action === 'check-update') {
+            const result = await service.checkUpdate()
+            return sendJson(res, 200, result)
+          }
+          if (action === 'apply-update') {
+            const result = await service.applyUpdate({
+              ...(Array.isArray(body?.approvedBuilds) ? { approvedBuilds: body.approvedBuilds } : {}),
+            })
+            return sendJson(res, 200, result)
           }
           return sendJson(res, 400, { ok: false, error: `unknown action: ${action}` })
         } catch (error) {
